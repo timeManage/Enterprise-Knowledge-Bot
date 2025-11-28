@@ -7,7 +7,7 @@ import pydantic
 from starlette.staticfiles import StaticFiles
 import uvicorn
 
-from document_load import qa_chain, split_docuemnt, vectorstore
+from document_load import qa_chain, split_docuemnt, vectorstore,reset_knowledge
 from gemini import gemini_2_5_flash, QuestionModel
 
 app = fastapi.FastAPI(
@@ -48,15 +48,13 @@ class UpdateRequest(pydantic.BaseModel):
 
 @app.post("/update_knowledge")
 async def update_knowledge(file: fastapi.UploadFile= fastapi.File(...)):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        # 2. 将上传的文件内容写入临时文件
-        # noinspection PyTypeChecker
-        shutil.copyfileobj(file.file, tmp_file)
-        tmp_file_path = tmp_file.name # 获取临时文件路径
+    file_path = f'./{file.filename}'
+    with open(file_path,'wb+')as  f:
+        f.write(file.file.read())
     try:
-        print(f"--- 开始处理新文件: {tmp_file_path} ---")
+        print(f"--- 开始处理新文件: {file_path} ---")
 
-        splits = split_docuemnt(tmp_file_path)
+        splits = split_docuemnt(file_path)
         # 注意：add_documents 会把新知识追加进去，而不是覆盖旧的
         vectorstore.add_documents(splits)
 
@@ -71,5 +69,17 @@ async def update_knowledge(file: fastapi.UploadFile= fastapi.File(...)):
         return {"code": 500, "msg": str(e)}
 
 
+@app.get('/knowledge_reset')
+async def knowledge_reset():
+    """
+    Reset the knowledge base.
+    """
+    try:
+        reset_knowledge()
+        return {"code": 200, "msg": "知识库重置成功"}
+    except Exception as e:
+        print(f"Error: {e}")
+        return {"code": 500, "msg": str(e)}
+
 if __name__ == '__main__':
-    uvicorn.run('openai_fastapi:app', host="0.0.0.0", port=8000, log_level="info", reload=True)
+    uvicorn.run('openai_fastapi:app', host="0.0.0.0", port=8000, log_level="info")

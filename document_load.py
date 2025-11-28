@@ -1,5 +1,6 @@
 import xml.dom.minidom
 
+import chromadb
 import dotenv
 import langchain_classic.chains.retrieval_qa.base
 import langchain_community.embeddings
@@ -40,24 +41,38 @@ def split_docuemnt(file_path:str='/Users/shentao/Downloads/2022张宇数学命�
     print(f"合并后总长度: {len(full_content)} 字符")
     print(f"切割后段数: {len(splits)}")
     return splits
-embeddings = langchain_community.embeddings.HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-# 2. 准备向量库
-# 如果 ./chroma_db 目录存在，直接读取；不存在则重新构建
-persist_dir = "./chroma_db"
-if os.path.exists(persist_dir):
-    print("发现现有向量库，正在加载...")
-    vectorstore = Chroma(persist_directory=persist_dir, embedding_function=embeddings)
-else:
-    print("未发现向量库，正在从 test.pdf 构建...")
-    # 这里放你刚才跑通的加载、切割、构建代码
-    loader = PyPDFLoader("./test.pdf")
-    pages = loader.load()
-    # ... (加上你那个合并页面的逻辑) ...
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    splits = text_splitter.split_documents(pages)
-    vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings, persist_directory=persist_dir)
 
-print("向量数据库构建完成！")
+
+
+def reset_knowledge():
+    global vectorstore
+    # 假设你要删除的文件路径或名称是这个
+    target_file_source = "merged_pdf"
+
+    # 1. 【查找】使用 get 方法配合 where 过滤条件，找到所有属于该文件的 ID
+    # Chroma 支持根据 metadata 字段进行过滤
+    record = vectorstore.get(
+        where={"source": target_file_source}
+    )
+    test_result = vectorstore.get(limit=1)
+    if test_result['metadatas']:
+        print("当前 Metadata 结构示例:", test_result['metadatas'][0])
+    ids_to_delete = record['ids']
+
+    print(f"找到属于 {target_file_source} 的切片数量: {len(ids_to_delete)}")
+
+    # 2. 【删除】如果有找到 ID，则进行删除
+    if len(ids_to_delete) > 0:
+        vectorstore.delete(ids=ids_to_delete)
+        print(f"成功删除文档: {target_file_source}")
+    else:
+        print("未找到该文档，请检查 metadata 中的 source 字段是否匹配。")
+    # vectorstore.delete_collection()
+    # vectorstore = Chroma(persist_directory="./chroma_db", embedding_function=embeddings, client_settings=chromadb.Settings(allow_reset=True))
+
+embeddings = langchain_community.embeddings.HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+vectorstore = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
+
 llm = ChatOpenAI(
     model="gemini-2.5-flash",  # 模型名称 (DeepSeek官网叫这个)
     api_key=api_key,  # 填你之前申请的 DeepSeek Key
@@ -69,15 +84,7 @@ llm = ChatOpenAI(
 qa_chain = langchain_classic.chains.retrieval_qa.base.RetrievalQA.from_chain_type(
     llm=llm,
     retriever=vectorstore.as_retriever(search_kwargs={"k": 3}), # k=3 意思是只找最相似的3段
-    return_source_documents=True # 让我们看看它参考了哪几段
+    return_source_documents=True  # 让我们看看它参考了哪几段
 )
-# 5. 测试
-# question = "在这个文档中，怎么判断病例是属于床日的？" # 换成针对你 PDF 的问题
-# print(f"用户提问: {question}")
-# result = qa_chain.invoke({"query": question})
-#
-# print("--- AI 回答 ---")
-# print(result["result"])
-# print("\n--- 参考片段 (证据) ---")
-# for doc in result["source_documents"]:
-#     print(f"[内容]: {doc.page_content[:50]}...") # 只打印前50个字
+print("RAG 链已更新，绑定了最新的知识库。")
+print("向量数据库构建完成！")
